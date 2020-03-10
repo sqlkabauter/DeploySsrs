@@ -206,7 +206,7 @@ function Publish-SsrsFolder()
             Write-Verbose "Current folder is the root folder"
         }
         
-        Set-SecurityPolicy -Proxy $Proxy -Folder $currentFolder -Name $Folder.Name -RoleAssignments $Folder.RoleAssignments -InheritParentSecurity:$Folder.InheritParentSecurity -Overwrite
+        Set-SecurityPolicy -Proxy $Proxy -Folder $currentFolder -RoleAssignments $Folder.RoleAssignments -InheritParentSecurity:$Folder.InheritParentSecurity -Overwrite
 
         foreach($folder in $Folder.Folders)
         {
@@ -411,7 +411,7 @@ function Set-SecurityPolicy()
     (
         [System.Web.Services.Protocols.SoapHttpClientProtocol][parameter(Mandatory = $true)]$Proxy,
         [string][parameter(Mandatory = $true)]$Folder,
-        [string][parameter(Mandatory = $true)]$Name,
+        [string]$Name,
         [RoleAssignment[]]$RoleAssignments,
         [switch]$InheritParentSecurity,
         [switch]$Overwrite,
@@ -425,13 +425,21 @@ function Set-SecurityPolicy()
     }
     PROCESS
     {
+        $Path = $Folder
+
+        # if name has been set then we are applying security at the report object level so include in path
+        if ($Name) 
+        {
+            $Path = $Path + '/' + $Name
+        }
+
         # if the item needs to be overwritten and it exists
-        if ($Overwrite -and (Test-SsrsItem $Proxy $Folder))
+        if ($Overwrite -and (Test-SsrsItem $Proxy $Path))
         {
             # check if parent security needs to be inherited and if not already so
-            if ($InheritParentSecurity -and -not (Test-InheritParentSecurity $Proxy $Folder))
+            if ($InheritParentSecurity -and -not (Test-InheritParentSecurity $Proxy $Path))
             {
-                Set-InheritParentSecurity $Proxy $Folder
+                Set-InheritParentSecurity $Proxy $Path
             }
             else
             {
@@ -448,7 +456,7 @@ function Set-SecurityPolicy()
 
                     if ($policies)
                     {
-                        Set-Policy -Proxy $Proxy -Path $Folder -Policies $policies
+                        Set-Policy -Proxy $Proxy -Path $Path -Policies $policies
                     }
                 }
             }
@@ -469,7 +477,7 @@ function Set-SecurityPolicy()
 
 function GetJsonFolderItems($Folder, [Folder]$Parent = $null)
 {
-    $f = [Folder]::new($folder.name, $Parent, $folder.hidden)
+    $f = [Folder]::new($folder.name, $Parent, $folder.inheritParentSecurity, $folder.hidden)
 
     foreach($group in $folder.security)
     {
@@ -499,7 +507,7 @@ function GetJsonFolderItems($Folder, [Folder]$Parent = $null)
 
     foreach($dataSet in $folder.dataSets)
     {
-        $ds += [DataSet]::new($dataSet.name, $dataSet.fileName, $dataSet.inheritParentSecurity, $dataSet.hidden)
+        $ds = [DataSet]::new($dataSet.name, $dataSet.fileName, $dataSet.inheritParentSecurity, $dataSet.hidden)
 
         foreach($group in $dataSet.security)
         {
@@ -511,7 +519,7 @@ function GetJsonFolderItems($Folder, [Folder]$Parent = $null)
 
     foreach($report in $folder.reports)
     {
-        $r += [Report]::new($report.name, $report.fileName, $report.inheritParentSecurity, $report.hidden)
+        $r = [Report]::new($report.name, $report.fileName, $report.inheritParentSecurity, $report.hidden)
 
         foreach($group in $report.security)
         {
@@ -902,7 +910,7 @@ function New-SsrsReport()
     {
         try
         {
-            [xml]$Definition = Get-Content -Path $RdlPath
+            [xml]$Definition = Get-Content -Encoding UTF8 -Path $RdlPath
             $NsMgr = New-XmlNamespaceManager $Definition d
 
             $descriptionNode = $Definition.SelectSingleNode('d:Report/d:Description', $NsMgr)
